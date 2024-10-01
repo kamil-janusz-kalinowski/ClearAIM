@@ -1,0 +1,24 @@
+# Ignore all .pyc files
+*.pyc
+
+# Ignore the virtual environment
+venv/
+
+# Ignore images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# Ignore logs
+*.log
+
+# Ignore matlab files
+*.mat
+*.m
+
+# Ignore output files
+*.json
+*.csv
+*.npy

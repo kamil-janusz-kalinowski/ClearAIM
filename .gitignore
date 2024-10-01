@@ -22,3 +22,6 @@ venv/
 *.json
 *.csv
 *.npy
+
+# Ignore model files
+*.pth

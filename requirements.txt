@@ -1,0 +1,6 @@
+torch
+segment_anything
+opencv-python
+numpy
+matplotlib
+tqdm

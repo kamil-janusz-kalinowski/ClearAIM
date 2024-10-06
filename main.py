@@ -18,8 +18,6 @@ class SamPredictorWrapper:
         return sam
 
     def predict_mask(self, image_path, point=None):
-        image = cv2.imread(image_path)
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         if point is None:
             pos_center = (image_rgb.shape[1] // 2, image_rgb.shape[0] // 2)
@@ -68,7 +66,7 @@ if __name__ == "__main__":
 
     model_type = "vit_h"
     checkpoint_path = "sam_vit_h.pth"
-    path_dir_images = r".\Materials\13.08"
+    path_dir_images = r".\Materials"
     
     sam_predictor = SamPredictorWrapper(model_type=model_type, checkpoint_path=checkpoint_path)
 
@@ -81,10 +79,14 @@ if __name__ == "__main__":
 
     mask_center = None
     for image_path in tqdm(image_paths, desc="Processing images"):
+        image = cv2.imread(image_path)
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image_rgb = cv2.resize(image_rgb, (image_rgb.shape[1] // 4, image_rgb.shape[0] // 4))
+        
         if mask_center is not None:
-            image_rgb, masks, point = sam_predictor.predict_mask(image_path, mask_center)
+            image_rgb, masks, point = sam_predictor.predict_mask(image_rgb, mask_center)
         else:
-            image_rgb, masks, point = sam_predictor.predict_mask(image_path)
+            image_rgb, masks, point = sam_predictor.predict_mask(image_rgb)
 
         save_mask_as_image(masks[1], image_path.replace("Materials", "Results").replace(".png", "_mask.png"))
 

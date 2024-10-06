@@ -17,7 +17,7 @@ class SamPredictorWrapper:
         sam.to(device=self.device)
         return sam
 
-    def predict_mask(self, image_path, point=None):
+    def predict_mask(self, image_rgb, point=None):
         
         if point is None:
             pos_center = (image_rgb.shape[1] // 2, image_rgb.shape[0] // 2)

@@ -17,7 +17,9 @@ for ind = 1 : length(paths)
     pause(0.01)
 end
 
-%% Calculate and show measurments
+%% Calculate and Display Sample Measurements
+
+RADIUS_DILAT = 20;
 
 web_contrast = zeros(length(paths), 1);
 area = zeros(length(paths), 1);
@@ -27,10 +29,10 @@ for ind = 1 : length(paths)
     img_mask = processMask(img_mask, size(img_origin));
 
     mean_value_object = mean(img_origin(img_mask(:)));
-    mask_background = bwmorph(img_mask, 'dilate', 20) & ~img_mask;
+    mask_background = bwmorph(img_mask, 'dilate', RADIUS_DILAT) & ~img_mask;
     mean_value_background = mean(img_origin(mask_background(:)));
     
-    web_contrast(ind) = weberContrast(mean_value_object, mean_value_background);
+    web_contrast(ind) = -weberContrast(mean_value_object, mean_value_background);
     area(ind) = sum(img_mask(:));
 
     disp("Progress: " + num2str(ind/length(paths) * 100) + "%")
@@ -84,7 +86,7 @@ for ind = 1 : length(paths)
     img_mask = processMask(img_mask, size(img_origin));
 
     mean_value_object = mean(img_origin(img_mask(:)));
-    mask_background = bwmorph(img_mask, 'dilate', 20) & ~img_mask;
+    mask_background = bwmorph(img_mask, 'dilate', RADIUS_DILAT) & ~img_mask;
     mean_value_background = mean(img_origin(mask_background(:)));
 
     web_contrast(ind) = -weberContrast(mean_value_object, mean_value_background);
@@ -121,30 +123,54 @@ close(videoWriter);
 disp('Animation completed and saved as animation.avi');
 
 
-function file_pairs = findImageMaskPairs(folder_images, folder_masks)
-    % Pobranie listy plików PNG w folderze z obrazami
-    image_files = dir(fullfile(folder_images, '*.png'));
+function file_pairs = findImageMaskPairs(folder_images, folder_masks, file_format)
+    % Retrieves pairs of image and corresponding mask files from specified folders
+    %
+    % This function searches for image files in the specified image folder,
+    % based on the provided file format, and tries to find corresponding mask
+    % files with a "_mask" suffix in the specified mask folder. It returns a
+    % structure array with image and mask paths.
+    %
+    % Parameters:
+    %    folder_images (string): Path to the folder containing image files
+    %    folder_masks (string): Path to the folder containing mask files
+    %    file_format (string): File format for the images (e.g., '*.png')
+    %
+    % Returns:
+    %    file_pairs (struct): Structure containing pairs of image and mask paths
+    %
+    % Example:
+    %    file_pairs = findImageMaskPairs('images_folder', 'masks_folder', '*.jpg');
     
-    % Inicjalizacja struktury do przechowywania wyników
+    % Set default file format if not provided
+    if nargin < 3
+        file_format = '*.png';
+    end
+    
+    % Get a list of files in the image folder with the specified format
+    image_files = dir(fullfile(folder_images, file_format));
+    
+    % Initialize a structure to store results
     file_pairs = struct('image_path', {}, 'mask_path', {});
     
-    % Iteracja po wszystkich plikach obrazów
+    % Iterate over all image files
     for i = 1:length(image_files)
-        % Uzyskanie nazwy pliku obrazu bez rozszerzenia
+        % Get the image filename without extension
         [~, filename, ~] = fileparts(image_files(i).name);
         
-        % Konstrukcja ścieżki do pliku maski w drugim folderze
+        % Construct the corresponding mask file path in the second folder
         mask_filename = [filename, '_mask.png'];
         mask_path = fullfile(folder_masks, mask_filename);
         
-        % Sprawdzenie, czy plik maski istnieje
+        % Check if the mask file exists
         if isfile(mask_path)
-            % Dodanie ścieżek do struktury
+            % Add the image and mask paths to the structure
             file_pairs(end+1).image_path = fullfile(folder_images, image_files(i).name);
             file_pairs(end).mask_path = mask_path;
         end
     end
 end
+
 
 function binary_mask = processMask(mask, target_size)
     %PROCESSMASK Processes the input mask by converting it to grayscale,
@@ -174,27 +200,41 @@ function binary_mask = processMask(mask, target_size)
 end
 
 function displayImageWithMaskContour(image_path, mask_path)
-    % Wczytanie oryginalnego obrazu
+    % displayImageWithMaskContour Displays an image with overlaid mask contours
+    %
+    % This function loads an original image and a corresponding mask, processes
+    % the mask to create a binary version, finds the contours of the mask, and
+    % displays the original image with the mask contours overlaid in red.
+    %
+    % Parameters:
+    %    image_path (string): Path to the image file
+    %    mask_path (string): Path to the mask file
+    %
+    % Example:
+    %    displayImageWithMaskContour('image.jpg', 'mask.png');
+    
+    % Load the original image
     original_image = imread(image_path);
     
-    % Wczytanie maski
+    % Load the mask
     mask = imread(mask_path);
     
-    % Przetworzenie maski (użycie funkcji pomocniczej)
+    % Process the mask (using a helper function)
     binary_mask = processMask(mask, [size(original_image, 1), size(original_image, 2)]);
     
-    % Znalezienie konturów maski
+    % Find the mask contours
     mask_contours = bwperim(binary_mask);
     
-    % Wyświetlenie oryginalnego obrazu
+    % Display the original image
     imshow(original_image);
     hold on;
     
-    % Nałożenie konturów na obraz (czerwony kolor konturów)
+    % Overlay the contours on the image (red contour color)
     visboundaries(mask_contours, 'Color', 'r');
     
     hold off;
 end
+
 
 
 function C = weberContrast(I_sample, I_background)

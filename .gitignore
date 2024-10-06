@@ -14,9 +14,8 @@ venv/
 # Ignore logs
 *.log
 
-# Ignore matlab files
+# Ignore matlab data files
 *.mat
-*.m
 
 # Ignore output files
 *.json
@@ -25,3 +24,12 @@ venv/
 
 # Ignore model files
 *.pth
+
+# Ignore avi files
+*.avi
+
+# Ignore asv files
+*.asv
+
+# Ignore database files
+*.db

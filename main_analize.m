@@ -39,11 +39,11 @@ for ind = 1 : length(paths)
 end
 
 figure
-plot(area(2:end), 'LineWidth', 2)
+plot(area(1:end), 'LineWidth', 2)
 title('Area plot')
 
 figure
-plot(web_contrast(2:end), 'LineWidth', 2)
+plot(web_contrast(1:end), 'LineWidth', 2)
 title('Weber contrast plot')
 
 %% Making animation

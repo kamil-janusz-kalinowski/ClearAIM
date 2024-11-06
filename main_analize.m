@@ -2,7 +2,10 @@ clc; clear; close all;
 
 addpath(genpath("./"));
 
-paths = findImageMaskPairs("./Materials", "./Results");
+path_images = "./Materials/1_2mm_brain";
+path_masks = "./Results/1_2mm_brain";
+
+paths = findImageMaskPairs(path_images, path_masks);
 paths = sort_image_mask_struct(paths);
 
 %% Show mask on image
@@ -23,6 +26,7 @@ RADIUS_DILAT = 20;
 
 web_contrast = zeros(length(paths), 1);
 area = zeros(length(paths), 1);
+transmittance = zeros(length(paths), 1);
 for ind = 1 : length(paths)
     img_origin = imread(paths(ind).image_path);
     img_mask = imread(paths(ind).mask_path);
@@ -34,6 +38,7 @@ for ind = 1 : length(paths)
     
     web_contrast(ind) = -weberContrast(mean_value_object, mean_value_background);
     area(ind) = sum(img_mask(:));
+    transmittance(ind) = mean_value_object/mean_value_background;
 
     disp("Progress: " + num2str(ind/length(paths) * 100) + "%")
 end
@@ -46,13 +51,17 @@ figure
 plot(web_contrast(1:end), 'LineWidth', 2)
 title('Weber contrast plot')
 
+figure
+plot(web_contrast(1:end), 'LineWidth', 2)
+title('Transmittance plot')
+
 %% Making animation
 
 % Assuming the functions findImageMaskPairs, displayImageWithMaskContour, 
 % processMask, and weberContrast are already defined.
 
 % Find and sort the image and mask paths
-paths = findImageMaskPairs("./Materials", "./Results");
+paths = findImageMaskPairs(path_images, path_masks);
 paths = sort_image_mask_struct(paths);
 
 % Preallocate arrays for measurements
@@ -60,7 +69,7 @@ web_contrast = zeros(length(paths), 1);
 area = zeros(length(paths), 1);
 
 % Create video writer
-videoWriter = VideoWriter('animation.avi'); % Name of the output video file
+videoWriter = VideoWriter('animation.avi', 'MPEG-4'); % Name of the output video file
 open(videoWriter);
 
 % Create figure for animation
@@ -72,7 +81,7 @@ for ind = 1 : length(paths)
     path_mask = paths(ind).mask_path;
 
     % Display the image with mask contours
-    subplot(1, 3, 1);
+    subplot(2, 2, 1);
     displayImageWithMaskContour(path_img, path_mask);
     title('Image with Mask Contours');
     
@@ -93,7 +102,7 @@ for ind = 1 : length(paths)
     area(ind) = sum(img_mask(:));
 
     % Plot area and contrast
-    subplot(1, 3, 2);
+    subplot(2, 2, 2);
     plot(1:ind, area(1:ind), 'LineWidth', 2);
     title('Area Plot');
     xlabel('Frame');
@@ -101,13 +110,22 @@ for ind = 1 : length(paths)
     xlim([1 length(paths)]);
     ylim([0 max(area) * 1.1]); % Adjust y-axis for better visibility
 
-    subplot(1, 3, 3);
+    subplot(2, 2, 3);
     plot(1:ind, web_contrast(1:ind), 'LineWidth', 2);
     title('Weber Contrast Plot');
     xlabel('Frame');
     ylabel('Weber Contrast Value');
     xlim([1 length(paths)]);
     ylim([0 max(web_contrast) * 1.1]); % Adjust y-axis for better visibility
+
+    subplot(2, 2, 4)
+    plot(1:ind, transmittance(1:ind), 'LineWidth', 2);
+    title('Transmittance Plot');
+    xlabel('Frame');
+    ylabel('Transmittance');
+    xlim([1 length(paths)]);
+    ylim([0 max(transmittance) * 1.1]); % Adjust y-axis for better visibility
+
 
     % Capture the frame
     frameData = getframe(gcf);
@@ -123,43 +141,46 @@ close(videoWriter);
 disp('Animation completed and saved as animation.avi');
 
 
-function file_pairs = findImageMaskPairs(folder_images, folder_masks, file_format)
+function file_pairs = findImageMaskPairs(folder_images, folder_masks, mask_suffix)
     % Retrieves pairs of image and corresponding mask files from specified folders
-    %
-    % This function searches for image files in the specified image folder,
-    % based on the provided file format, and tries to find corresponding mask
-    % files with a "_mask" suffix in the specified mask folder. It returns a
-    % structure array with image and mask paths.
     %
     % Parameters:
     %    folder_images (string): Path to the folder containing image files
     %    folder_masks (string): Path to the folder containing mask files
-    %    file_format (string): File format for the images (e.g., '*.png')
+    %    mask_suffix (string): Suffix to identify mask files (e.g., '_mask')
     %
     % Returns:
     %    file_pairs (struct): Structure containing pairs of image and mask paths
     %
     % Example:
-    %    file_pairs = findImageMaskPairs('images_folder', 'masks_folder', '*.jpg');
+    %    file_pairs = findImageMaskPairs('images_folder', 'masks_folder', '_mask');
     
-    % Set default file format if not provided
+    % Set default mask suffix if not provided
     if nargin < 3
-        file_format = '*.png';
+        mask_suffix = '_mask';    % Default mask suffix
     end
     
-    % Get a list of files in the image folder with the specified format
-    image_files = dir(fullfile(folder_images, file_format));
+    % List of possible image file extensions
+    image_extensions = {'*.png', '*.jpg', '*.jpeg', '*.tiff', '*.bmp', '*.gif'};
     
     % Initialize a structure to store results
     file_pairs = struct('image_path', {}, 'mask_path', {});
     
+    % Initialize a list to store image files
+    image_files = [];
+    
+    % Search for images with all extensions
+    for ext = image_extensions
+        image_files = [image_files; dir(fullfile(folder_images, ext{1}))];
+    end
+    
     % Iterate over all image files
     for i = 1:length(image_files)
         % Get the image filename without extension
-        [~, filename, ~] = fileparts(image_files(i).name);
+        [~, filename, ext] = fileparts(image_files(i).name);
         
-        % Construct the corresponding mask file path in the second folder
-        mask_filename = [filename, '_mask.png'];
+        % Construct the corresponding mask file path in the mask folder
+        mask_filename = [filename, mask_suffix, ext];  % Keep the same extension for the mask
         mask_path = fullfile(folder_masks, mask_filename);
         
         % Check if the mask file exists

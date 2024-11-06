@@ -28,8 +28,15 @@ venv/
 # Ignore avi files
 *.avi
 
+# Ignore mp4 files
+*.mp4
+
 # Ignore asv files
 *.asv
 
 # Ignore database files
 *.db
+
+# Ignore images and results
+Materials/*
+Results/*

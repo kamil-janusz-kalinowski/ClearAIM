@@ -18,8 +18,9 @@ times_days_array = getTimeFromMetadatas([paths_pairs.image_path]);
 displayMetrics(metrics_array, times_days_array)
 
 %% Making animation from data
-filename_save = 'animation.avi';
+filename_save = 'animation';
 createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_array, times_days_array)
+
 
 
 function file_pairs = findImageMaskPairs(folder_images, folder_masks, mask_suffix)
@@ -354,75 +355,108 @@ end
 
 function createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_array, times_days_array)
     % Create video writer
-    videoWriter = VideoWriter(filename_save, 'MPEG-4'); % Name of the output video file
+    videoWriter = VideoWriter(filename_save, 'MPEG-4');
+    videoWriter.Quality = 100;
     open(videoWriter);
-    
 
-    area_array = [metrics_array(:).area];
+    % Preprocess data
+    area_array = [metrics_array(:).area] / max([metrics_array(:).area]); % Normalize area
     web_contrast_array = [metrics_array(:).web_contrast];
-    transmittance_array = [metrics_array(:).transmittance];
+    transmittance_array = [metrics_array(:).transmittance] * 100; % Convert to percentage
+    times_hours = times_days_array * 24; % Convert days to hours
 
-    % Processing data
-    area_array = area_array/max(area_array);
-    transmittance_array = transmittance_array * 100;
- 
-    times_hours = times_days_array * 24; % Days to hours
+    % Define y-limits outside the loop for performance
+    area_limits = [min(area_array), max(area_array)];
+    contrast_limits = [min(web_contrast_array), max(web_contrast_array)];
+    transmittance_limits = [min(transmittance_array), max(transmittance_array)];
 
-    % Create figure for animation
-    figure
-    % Show mask on image and calculate measurements
-    for ind = 1 : length(paths_pairs)
+    % Create figure and layout
+    h_fig = figure;
+    maximizeFigureWithOriginalAspectRatio(h_fig);
+    t = tiledlayout(2, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
+    
+    % Animation loop
+    for ind = 1:length(paths_pairs)
         path_img = paths_pairs(ind).image_path;
         path_mask = paths_pairs(ind).mask_path;
-        
+
         % Display the image with mask contours
-        subplot(2, 2, 1);
+        nexttile(1);
         displayImageWithMaskContour(path_img, path_mask);
         title('Image with Mask Contours');
-        
-        % Update progress title
-        progress = (ind / length(paths_pairs)) * 100;
-        title(['Processing... ', num2str(progress, '%.1f'), '%']);
-    
-        % Plot area and contrast
-        subplot(2, 2, 2);
-        plot(times_hours(1:ind), area_array(1:ind), 'LineWidth', 2);
-        title('Area Plot');
+
+        % Plot area
+        nexttile(2);
+        plot(times_hours(1:ind), area_array(1:ind), 'LineWidth', 2, 'Color', 'b');
+        title('Normalized Area Over Time');
         xlabel('Time (hours)');
-        ylabel('Area normed');
+        ylabel('Normalized Area');
         xlim([times_hours(1), times_hours(end)]);
-        ylim([min(area_array), max(area_array)]); % Adjust y-axis for better visibility
-    
-        subplot(2, 2, 3);
-        plot(times_hours(1:ind), web_contrast_array(1:ind), 'LineWidth', 2);
-        title('Weber Contrast Plot');
+        ylim(area_limits);
+
+        % Plot Weber contrast
+        nexttile(3);
+        plot(times_hours(1:ind), web_contrast_array(1:ind), 'LineWidth', 2, 'Color', 'r');
+        title('Weber Contrast Over Time');
         xlabel('Time (hours)');
-        ylabel('Weber Contrast Value');
+        ylabel('Weber Contrast');
         xlim([times_hours(1), times_hours(end)]);
-        ylim([min(web_contrast_array) max(web_contrast_array)]); % Adjust y-axis for better visibility
-    
-        subplot(2, 2, 4)
-        plot(times_hours(1:ind), transmittance_array(1:ind), 'LineWidth', 2);
-        title('Transmittance Plot');
+        ylim(contrast_limits);
+
+        % Plot transmittance with darker green color
+        nexttile(4);
+        plot(times_hours(1:ind), transmittance_array(1:ind), 'LineWidth', 2, 'Color', '#2e8b57'); % Dark green
+        title('Transmittance Over Time');
         xlabel('Time (hours)');
-        ylabel('Transmittance [%]');
+        ylabel('Transmittance (%)');
         xlim([times_hours(1), times_hours(end)]);
-        ylim([min(transmittance_array) max(transmittance_array)]); % Adjust y-axis for better visibility
-    
-    
+        ylim(transmittance_limits);
+
         % Capture the frame
         frameData = getframe(gcf);
         writeVideo(videoWriter, frameData);
-    
-        % Pause briefly to visualize the process
+
+        % Pause briefly for visualization (optional)
         pause(0.01);
     end
-    
-    % Close the video writer
+
+    % Close the video writer and figure
     close(videoWriter);
-    
+    close(h_fig);
+
     disp(['Animation completed and saved as ', filename_save]);
+end
 
 
+function maximizeFigureWithOriginalAspectRatio(figHandle)
+    % Sprawdzenie, czy uchwyt jest poprawny
+    if ~isgraphics(figHandle, 'figure')
+        error('Invalid figure handle.');
+    end
+
+    % Pobranie aktualnych proporcji figury
+    originalPosition = figHandle.Position;
+    aspectRatio = originalPosition(3) / originalPosition(4); % width / height
+
+    % Pobranie rozmiarów ekranu
+    screenSize = get(0, 'ScreenSize'); % [left, bottom, width, height]
+
+    % Obliczenie maksymalnych wymiarów figury przy zachowaniu oryginalnych proporcji
+    if (screenSize(3) / screenSize(4)) > aspectRatio
+        % Ekran jest szerszy niż proporcja figury
+        figHeight = screenSize(4) * 0.9; % 90% wysokości ekranu
+        figWidth = figHeight * aspectRatio;
+    else
+        % Ekran jest wyższy niż proporcja figury
+        figWidth = screenSize(3) * 0.9; % 90% szerokości ekranu
+        figHeight = figWidth / aspectRatio;
+    end
+
+    % Ustawienie pozycji figury na środku ekranu z maksymalnymi wymiarami
+    figHandle.Position = [ ...
+        (screenSize(3) - figWidth) / 2, ...
+        (screenSize(4) - figHeight) / 2, ...
+        figWidth, ...
+        figHeight];
 end
 

@@ -2,8 +2,8 @@ clc; clear; close all;
 
 addpath(genpath("./"));
 
-path_images = "./Materials/1_2mm_brain";
-path_masks = "./Results/1_2mm_brain";
+path_images = "./Materials/250um brain/skrawek 1";
+path_masks = "./Results/250um brain/skrawek 1";
 
 paths_pairs = findImageMaskPairs(path_images, path_masks);
 paths_pairs = sort_image_mask_struct(paths_pairs);
@@ -36,43 +36,66 @@ function file_pairs = findImageMaskPairs(folder_images, folder_masks, mask_suffi
     %
     % Example:
     %    file_pairs = findImageMaskPairs('images_folder', 'masks_folder', '_mask');
-    
+
     % Set default mask suffix if not provided
     if nargin < 3
         mask_suffix = '_mask';    % Default mask suffix
     end
-    
-    % List of possible image file extensions
+
+    % List of possible file extensions
     image_extensions = {'*.png', '*.jpg', '*.jpeg', '*.tiff', '*.bmp', '*.gif'};
-    
+    mask_extensions = {'*.png', '*.jpg', '*.jpeg', '*.tiff', '*.bmp', '*.gif'};
+
     % Initialize a structure to store results
     file_pairs = struct('image_path', {}, 'mask_path', {});
-    
+
     % Initialize a list to store image files
     image_files = [];
-    
-    % Search for images with all extensions
     for ext = image_extensions
         image_files = [image_files; dir(fullfile(folder_images, ext{1}))];
     end
-    
+
+    % Initialize a list to store mask files
+    mask_files = [];
+    for ext = mask_extensions
+        mask_files = [mask_files; dir(fullfile(folder_masks, ext{1}))];
+    end
+
+    % Map mask names to their full paths for quick lookup
+    mask_map = containers.Map();
+    for i = 1:length(mask_files)
+        [~, mask_name, mask_ext] = fileparts(mask_files(i).name);
+        mask_map([mask_name, mask_ext]) = fullfile(folder_masks, mask_files(i).name);
+    end
+
     % Iterate over all image files
     for i = 1:length(image_files)
         % Get the image filename without extension
-        [~, filename, ext] = fileparts(image_files(i).name);
-        
-        % Construct the corresponding mask file path in the mask folder
-        mask_filename = [filename, mask_suffix, ext];  % Keep the same extension for the mask
-        mask_path = fullfile(folder_masks, mask_filename);
-        
-        % Check if the mask file exists
-        if isfile(mask_path)
-            % Add the image and mask paths to the structure
-            file_pairs(end+1).image_path = fullfile(folder_images, image_files(i).name);
-            file_pairs(end).mask_path = mask_path;
+        [~, filename, ~] = fileparts(image_files(i).name);
+
+        % Construct the corresponding mask name
+        mask_name = [filename, mask_suffix];
+
+        % Check all possible mask extensions
+        found_mask = false;
+        for ext = mask_extensions
+            mask_filename = [mask_name, ext{1}(2:end)]; % Remove '*' from extension
+            if mask_map.isKey(mask_filename)
+                found_mask = true;
+                % Add the image and mask paths to the structure
+                file_pairs(end+1).image_path = fullfile(folder_images, image_files(i).name);
+                file_pairs(end).mask_path = mask_map(mask_filename);
+                break;
+            end
+        end
+
+        % If no mask is found, skip this image
+        if ~found_mask
+            continue;
         end
     end
 end
+
 
 function binary_mask = processMask(mask, target_size)
     %PROCESSMASK Processes the input mask by converting it to grayscale,
@@ -250,31 +273,35 @@ function displayMetrics(metrics_array, time_x)
     transmittance_array = [metrics_array(:).transmittance];
 
     % Processing data
-    area_array = area_array/max(area_array);
+    area_array = area_array / area_array(1);
     transmittance_array = transmittance_array * 100;
  
     time_x = time_x * 24; % Days to hours
 
-    % Display data for Area
-    figure
-    plot(time_x, area_array, 'LineWidth', 2)
-    title('Area plot')
-    xlabel('Time (hours)')  % Added axis label
-    ylabel('Normalized Area')  % Added axis label
+    % Create a figure with a white background
+    h = figure;
+    set(h, 'Color', 'w');
+
+    % Subplot for Area
+    subplot(3, 1, 1);  % 3 rows, 1 column, 1st subplot
+    plot(time_x, area_array, 'LineWidth', 2);
+    title('Area plot');
+    xlabel('Time (hours)');
+    ylabel('Normalized Area');
     
-    % Display data for Weber contrast
-    figure
-    plot(time_x, web_contrast_array, 'LineWidth', 2)
-    title('Weber contrast plot')
-    xlabel('Time (hours)')  % Added axis label
-    ylabel('Weber Contrast')  % Added axis label
+    % Subplot for Weber Contrast
+    subplot(3, 1, 2);  % 3 rows, 1 column, 2nd subplot
+    plot(time_x, web_contrast_array, 'LineWidth', 2);
+    title('Weber contrast plot');
+    xlabel('Time (hours)');
+    ylabel('Weber Contrast');
     
-    % Display data for Transmittance
-    figure
-    plot(time_x, transmittance_array, 'LineWidth', 2)
-    title('Transmittance plot')
-    xlabel('Time (hours)')  % Added axis label
-    ylabel('Transmittance (%)')  % Added axis label
+    % Subplot for Transmittance
+    subplot(3, 1, 3);  % 3 rows, 1 column, 3rd subplot
+    plot(time_x, transmittance_array, 'LineWidth', 2);
+    title('Transmittance plot');
+    xlabel('Time (hours)');
+    ylabel('Transmittance (%)');
 end
 
 
@@ -372,6 +399,7 @@ function createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_ar
 
     % Create figure and layout
     h_fig = figure;
+    set(h_fig, 'Color', 'w');
     maximizeFigureWithOriginalAspectRatio(h_fig);
     t = tiledlayout(2, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
     

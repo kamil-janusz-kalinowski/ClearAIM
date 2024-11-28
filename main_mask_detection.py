@@ -1,128 +1,95 @@
-import torch
-from segment_anything import SamPredictor, sam_model_registry
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
+import os
+from tqdm import tqdm
+from src.SAM_wrapper import SamPredictorWrapper
+from src.utility import save_mask_as_image, get_click_coordinates, get_negative_points
 
-class SamPredictorWrapper:
-    def __init__(self, model_type="vit_h", checkpoint_path="sam_vit_h.pth", device=None):
-        self.model_type = model_type
-        self.checkpoint_path = checkpoint_path
-        self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
-        self.sam = self._load_model()
-        self.predictor = SamPredictor(self.sam)
-
-    def _load_model(self):
-        sam = sam_model_registry[self.model_type](checkpoint=self.checkpoint_path)
-        sam.to(device=self.device)
-        return sam
-
-    def predict_mask(self, image_rgb, point=None):
-        
-        if point is None:
-            pos_center = (image_rgb.shape[1] // 2, image_rgb.shape[0] // 2)
-            point = np.array([pos_center])
-        else:
-            point = np.array([point])
-
-        self.predictor.set_image(image_rgb)
-        masks, _, _ = self.predictor.predict(point_coords=point, point_labels=np.array([1]))
-        
-        return image_rgb, masks, point
-
-    def display_mask(self, image_rgb, masks, point, mask_index=1):
-        plt.figure(figsize=(10, 10))
-        plt.imshow(image_rgb)
-        plt.imshow(masks[mask_index], alpha=0.5)
-        plt.scatter(point[:, 0], point[:, 1], color='red', s=100, marker='x')
-        plt.axis('off')
-        plt.show()
-
-def save_mask_as_image(mask, output_path):
-    """
-    Saves the logical mask as an image at the given path.
-
-    :param mask: Logical mask (numpy array)
-    :param output_path: Path to the output file
-    """
-    mask = mask.astype(np.uint8) * 255
-    cv2.imwrite(output_path, mask)
-    print(f"Saved mask to {output_path}")
-
-def save_mask(mask, output_path):
-    """
-    Saves the logical mask as a .npy file at the given path.
-
-    :param mask: Logical mask (numpy array)
-    :param output_path: Path to the output file
-    """
-    np.save(output_path, mask)
-    print(f"Saved mask to {output_path}")
-
-def get_click_coordinates(image):
-    coordinates = []
-    
-    def mouse_callback(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN:
-            coordinates.append((x, y))
-            cv2.destroyAllWindows()
-    
-    cv2.imshow('Click to select point', image)
-    cv2.setMouseCallback('Click to select point', mouse_callback)
-    cv2.waitKey(0)
-    return coordinates[0] if coordinates else None
-
-# Example usage of the class
-if __name__ == "__main__":
-    import os
-    from tqdm import tqdm
-
-    # Configuration
-    model_type = "vit_h"
-    checkpoint_path = "sam_vit_h.pth"
-    path_dir_images = r".\Materials\1_2mm_brain"
-    
-    # Supported image formats
+class MaskDetector:
+    DOWNSCALE_FACTOR = 4
     IMAGE_EXTENSIONS = ('.tiff', '.tif', '.png', '.jpg', '.jpeg', '.bmp')
     
-    sam_predictor = SamPredictorWrapper(model_type=model_type, checkpoint_path=checkpoint_path)
+    def __init__(self, model_type="vit_h", checkpoint_path="sam_vit_h.pth"):
+        self.sam_predictor = SamPredictorWrapper(
+            model_type=model_type, 
+            checkpoint_path=checkpoint_path
+        )
 
-    # Create Results directory
-    path_dir_results = path_dir_images.replace("Materials", "Results")
-    if not os.path.exists(path_dir_results):
-        os.makedirs(path_dir_results)
+    def _setup_directories(self, input_dir):
+        """Create results directory if it doesn't exist"""
+        results_dir = input_dir.replace("Materials", "Results")
+        os.makedirs(results_dir, exist_ok=True)
+        return results_dir
 
-    # Get all image files with supported extensions
-    image_paths = []
-    for file in os.listdir(path_dir_images):
-        if file.lower().endswith(IMAGE_EXTENSIONS):
-            image_paths.append(os.path.join(path_dir_images, file))
-    
-    if not image_paths:
-        raise ValueError(f"No images found in {path_dir_images} with supported extensions: {IMAGE_EXTENSIONS}")
+    def _get_image_paths(self, input_dir):
+        """Get all valid image paths from input directory"""
+        image_paths = [
+            os.path.join(input_dir, f) for f in os.listdir(input_dir)
+            if f.lower().endswith(self.IMAGE_EXTENSIONS)
+        ]
+        if not image_paths:
+            raise ValueError(
+                f"No images found in {input_dir} with supported extensions: {self.IMAGE_EXTENSIONS}"
+            )
+        
+        print(f"Found {len(image_paths)} images in {input_dir}")
+        return image_paths
 
-    # Get first image and let user select point
-    first_image = cv2.imread(image_paths[0])
-    first_image_rgb = cv2.cvtColor(first_image, cv2.COLOR_BGR2RGB)
-    first_image_rgb = cv2.resize(first_image_rgb, (first_image_rgb.shape[1] // 4, first_image_rgb.shape[0] // 4))
-    
-    # Get click coordinates for the first image
-    mask_center = get_click_coordinates(cv2.cvtColor(first_image_rgb, cv2.COLOR_RGB2BGR))
-    
-    for image_path in tqdm(image_paths, desc="Processing images"):
+    def _preprocess_image(self, image_path):
+        """Load and preprocess image"""
         image = cv2.imread(image_path)
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image_rgb = cv2.resize(image_rgb, (image_rgb.shape[1] // 4, image_rgb.shape[0] // 4))
-        
-        image_rgb, masks, point = sam_predictor.predict_mask(image_rgb, mask_center)
-        
-        # Create output path with original extension replaced by _mask.png
-        output_path = os.path.join(
-            path_dir_results,
-            os.path.splitext(os.path.basename(image_path))[0] + "_mask.png"
+        return cv2.resize(
+            image_rgb, 
+            (image_rgb.shape[1] // self.DOWNSCALE_FACTOR, 
+             image_rgb.shape[0] // self.DOWNSCALE_FACTOR)
         )
-        
-        save_mask_as_image(masks[1], output_path)
-        
-        # Update mask center for next frame
-        mask_center = np.array([np.mean(np.where(masks[1] == 1)[1]), np.mean(np.where(masks[1] == 1)[0])])
+
+    def _get_output_path(self, results_dir, image_path):
+        """Generate output path for mask"""
+        return os.path.join(
+            results_dir,
+            f"{os.path.splitext(os.path.basename(image_path))[0]}_mask.png"
+        )
+
+    def process_images(self, input_dir):
+        """Main processing pipeline"""
+        results_dir = self._setup_directories(input_dir)
+        image_paths = self._get_image_paths(input_dir)
+
+        # Initialize with first image
+        first_image = self._preprocess_image(image_paths[0])
+        point_center = get_click_coordinates(
+            cv2.cvtColor(first_image, cv2.COLOR_RGB2BGR)
+        )
+        points_negative = None
+
+        # Process all images
+        for image_path in tqdm(image_paths, desc="Processing images"):
+            image_rgb = self._preprocess_image(image_path)
+            
+            if points_negative is None:
+                masks, point = self.sam_predictor.predict_mask(image_rgb, point_center)
+                points_negative = get_negative_points(masks[1], num_points=10, min_distance=50)
+            else:
+                masks, point_center = self.sam_predictor.predict_mask(
+                    image_rgb, 
+                    point_center, 
+                    points_negative
+                )
+                points_negative = get_negative_points(masks[1], num_points=5, min_distance=50)
+
+            # Save mask and update center
+            output_path = self._get_output_path(results_dir, image_path)
+            save_mask_as_image(masks[1], output_path)
+            point_center = np.array([
+                np.mean(np.where(masks[1] == 1)[1]), 
+                np.mean(np.where(masks[1] == 1)[0])
+            ])
+            
+def main():
+    detector = MaskDetector()
+    detector.process_images(r".\Materials\250um brain\skrawek 2")
+
+if __name__ == "__main__":
+    main()

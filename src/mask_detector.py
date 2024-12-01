@@ -16,6 +16,8 @@ class MaskDetectorConfig:
         self.image_extensions = ('.tiff', '.tif', '.png', '.jpg', '.jpeg', '.bmp')
         self.folderpath_source = None
         self.folderpath_save = None
+        self.num_positive_points = 2
+        self.num_negative_points = 12
     
 class MaskDetectorBuilder:
     def __init__(self):
@@ -77,18 +79,28 @@ class MaskDetectorBuilder:
     def folderpath_save(self, path: str):
         self._config.folderpath_save = path    
     
+    @property
+    def num_positive_points(self):
+        return self._config.num_positive_points
+    
+    @num_positive_points.setter
+    def num_positive_points(self, value):
+        self._config.num_positive_points = value
+        
+    @property
+    def num_negative_points(self):
+        return self._config.num_negative_points
+    
+    @num_negative_points.setter
+    def num_negative_points(self, value):
+        self._config.num_negative_points = value
+    
     def build(self):
         return MaskDetector(self._config)
     
-class DirectoryManager:
+class ImagePathUtility:
     @staticmethod
-    def setup_directories(input_dir):
-        results_dir = input_dir.replace("Materials", "Results")
-        os.makedirs(results_dir, exist_ok=True)
-        return results_dir
-
-    @staticmethod
-    def get_image_paths(input_dir, image_extensions):
+    def get_image_paths(input_dir: str, image_extensions: list) -> list:
         image_paths = [
             os.path.join(input_dir, f) for f in os.listdir(input_dir)
             if f.lower().endswith(image_extensions)
@@ -99,17 +111,29 @@ class DirectoryManager:
             )
         print(f"Found {len(image_paths)} images in {input_dir}")
         return image_paths
+    
+    @staticmethod
+    def save_mask_as_image(mask: np.ndarray, output_path: str) -> None:
+        """
+        Saves the logical mask as an image at the given path.
+
+        :param mask: Logical mask (numpy array)
+        :param output_path: Path to the output file
+        """
+        mask = mask.astype(np.uint8)*255
+        cv2.imwrite(output_path, mask)
+        print(f"Saved mask to {output_path}")
 
 class ImageProcessor:
     @staticmethod
-    def load_image(image_path):
+    def load_image(image_path: str) -> np.ndarray:
         image = cv2.imread(image_path)
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         return image_rgb
     
     @staticmethod
-    def rescale(image: np.ndarray, rescale_factor) -> np.ndarray:
+    def rescale(image: np.ndarray, rescale_factor: float) -> np.ndarray:
         return cv2.resize(
             image, 
             (
@@ -124,7 +148,7 @@ class ImageProcessor:
         return cv2.bitwise_not(mask)/255
     
     @staticmethod
-    def get_biggest_object_from_mask(mask):
+    def get_biggest_object_from_mask(mask: np.ndarray) -> np.ndarray:
         # Get the biggest mask object
         mask = mask.astype(np.uint8)*255
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -134,7 +158,6 @@ class ImageProcessor:
             cv2.drawContours(mask_final, [biggest_contour], -1, 1, cv2.FILLED)
         return mask_final
             
-
 class MaskVisualizer:
     
     @staticmethod
@@ -201,6 +224,13 @@ def distribute_points_using_kmeans(mask, num_points):
     
     return distributed_points
 
+class ImageProcessingState:
+    def __init__(self, points_positive = None, points_negative = None, mask_current = None, mask_previous = None):
+        self.points_positive = points_positive
+        self.points_negative = points_negative
+        self.mask_current = mask_current
+        self.mask_previous = mask_previous
+
 class MaskDetector:
     def __init__(self, config: MaskDetectorConfig):
         self._model_type = config.model_type
@@ -210,6 +240,8 @@ class MaskDetector:
         self.IMAGE_EXTENSIONS = config.image_extensions
         self.folderpath_source = config.folderpath_source   
         self.folderpath_save = config.folderpath_save
+        self.num_positive_points = config.num_positive_points
+        self.num_negative_points = config.num_negative_points
         
         self._sam_predictor = SamPredictorWrapper(
             model_type=self._model_type,
@@ -218,8 +250,8 @@ class MaskDetector:
 
     def process_images(self):
         """Main processing pipeline"""
-        paths_image = DirectoryManager.get_image_paths(self.folderpath_source, self.IMAGE_EXTENSIONS)
-        results_dir = DirectoryManager.setup_directories(self.folderpath_save)
+        paths_image = ImagePathUtility.get_image_paths(self.folderpath_source, self.IMAGE_EXTENSIONS)
+        os.makedirs(self.folderpath_save, exist_ok=True)
         
         # Initialize with first image
         first_image = ImageProcessor.load_image(paths_image[0])
@@ -229,34 +261,47 @@ class MaskDetector:
             cv2.cvtColor(first_image, cv2.COLOR_RGB2BGR)
         )
         
-        points_negative = None
-        mask = None
+        state = ImageProcessingState(points_positive, None, None, None)
+        
         # Process all images
         for path_image in tqdm(paths_image, desc="Processing images"):
             image_rgb = ImageProcessor.load_image(path_image)
-            image_rgb = ImageProcessor.rescale(image_rgb, 1/self.DOWNSCALE_FACTOR)
+            state = self.process_single_image(image_rgb, state)
             
-            # Predict mask
-            masks = self._sam_predictor.predict_mask(
-                image_rgb, 
-                points_positive, 
-                points_negative,
-                mask_input=mask
-            )
-            
-            mask = ImageProcessor.get_biggest_object_from_mask(masks[1])
-            
-            if self.is_display:
-                MaskVisualizer.display_image_with_data(image_rgb, mask, points_positive, points_negative)
-                
-            # get points for next frame
-            points_positive = distribute_points_using_kmeans(mask, num_points=2)
-            points_negative = distribute_points_using_kmeans(ImageProcessor.invert_mask(mask), num_points=20)
-
             # Save mask and update center
             output_path = self._get_save_path(path_image)
-            save_mask_as_image(mask, output_path)
-    
+            ImagePathUtility.save_mask_as_image(state.mask_current, output_path)
+            
+    def process_single_image(self, image_rgb: np.ndarray, state: ImageProcessingState) -> ImageProcessingState:
+        """Process a single image"""
+        image_rgb = ImageProcessor.rescale(image_rgb, 1/self.DOWNSCALE_FACTOR)        
+                
+        # Predict mask
+        masks = self._sam_predictor.predict_mask(
+            image_rgb, 
+            state.points_positive, 
+            state.points_negative,
+            mask_input=state.mask_current
+        )
+        
+        state.mask_current = ImageProcessor.get_biggest_object_from_mask(masks[1])
+        
+        if self.is_display:
+            MaskVisualizer.display_image_with_data(image_rgb, state.mask_current, state.points_positive, state.points_negative)
+            
+        if state.mask_previous is not None:
+            mask_mutual = cv2.bitwise_and(state.mask_current, state.mask_previous)   
+        else:
+            mask_mutual = state.mask_current 
+            
+        # get points for next frame
+        state.points_positive = distribute_points_using_kmeans(mask_mutual, num_points=self.num_positive_points)
+        state.points_negative = distribute_points_using_kmeans(ImageProcessor.invert_mask(state.mask_current), num_points=self.num_negative_points)
+
+        state.mask_previous = state.mask_current
+        
+        return state
+
     def _get_save_path(self, path_image):
         # Get the directory and filename from the input path
         directory, filename = os.path.split(path_image)
@@ -271,77 +316,4 @@ class MaskDetector:
         output_path = os.path.join(self.folderpath_save, mask_filename)
         
         return output_path
-        
-    def _get_positive_points(self, mask, num_points=2):
-        """
-        Generate positive points using k-means clustering within the mask.
-        
-        Args:
-            mask: Binary mask array
-            num_points: Number of points to generate
-        
-        Returns:
-            np.array: Array of [x, y] coordinates for positive points
-        """
-        # Get valid points from the mask
-        y_indices, x_indices = np.where(mask == 255)
-        if len(y_indices) == 0:
-            return np.array([])
-
-        # Combine coordinates into a single array for clustering
-        coordinates = np.column_stack((x_indices, y_indices))
-
-        # Use k-means clustering to find clusters
-        kmeans = KMeans(n_clusters=min(num_points, len(coordinates)), random_state=0, n_init='auto')
-        kmeans.fit(coordinates)
-        cluster_centers = kmeans.cluster_centers_
-
-        # Round cluster centers to nearest integer coordinates
-        selected_points = np.round(cluster_centers).astype(int)
-        
-        return selected_points
-    
-    def _get_negative_points(self, mask, num_points=5, min_distance=50):
-        import cv2
-        import numpy as np
-        from scipy.spatial.distance import cdist
-
-        # Find mask contours
-        mask = mask.astype(np.uint8)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # Create grid of candidate points
-        h, w = mask.shape
-        x = np.linspace(0, w-1, 20).astype(int)
-        y = np.linspace(0, h-1, 20).astype(int)
-        xx, yy = np.meshgrid(x, y)
-        grid_points = np.column_stack((xx.ravel(), yy.ravel()))
-        
-        # Calculate distances from each grid point to contour points
-        contour_points = np.vstack([c.squeeze() for c in contours])
-        distances = cdist(grid_points, contour_points)
-        min_distances = distances.min(axis=1)
-        
-        # Filter points that are:
-        # 1. Far enough from mask
-        distance_mask = min_distances > min_distance
-        
-        # 2. Outside the mask
-        outside_mask = []
-        for point in grid_points:
-            result = cv2.pointPolygonTest(contours[0], (float(point[0]), float(point[1])), False)
-            outside_mask.append(result < 0)  # Negative means outside
-        
-        # Combine both conditions
-        valid_points = grid_points[np.logical_and(distance_mask, outside_mask)]
-        
-        # Randomly select points
-        if len(valid_points) > num_points:
-            indices = np.random.choice(len(valid_points), num_points, replace=False)
-            selected_points = valid_points[indices]
-        else:
-            selected_points = valid_points
-            
-        return selected_points.tolist()
-    
     

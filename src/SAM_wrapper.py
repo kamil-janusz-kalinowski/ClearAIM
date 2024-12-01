@@ -1,3 +1,5 @@
+"""Module for the SAM_wrapper class."""
+# pylint: disable=missing-module-docstring maybe-no-member
 import torch
 from segment_anything import SamPredictor, sam_model_registry
 import numpy as np
@@ -5,14 +7,16 @@ import cv2
 
 
 class SamPredictorWrapper:
+    """A wrapper class for the SAM model."""
     def __init__(self, model_type="vit_h", checkpoint_path="sam_vit_h.pth", device=None):
         """
         Initializes the SAM_wrapper class.
 
         Args:
-            model_type (str): The type of model to use. Default is "vit_h".
-            checkpoint_path (str): The path to the model checkpoint file. Default is "sam_vit_h.pth".
-            device (str, optional): The device to run the model on. If not specified, it will use "cuda" if available, otherwise "cpu".
+            model_type (str): The type of model to use.
+            checkpoint_path (str): The path to the model checkpoint file.
+            device (str, optional): The device to run the model on. 
+            If not specified, it will use "cuda" if available, otherwise "cpu".
 
         Attributes:
             model_type (str): The type of model being used.
@@ -41,7 +45,8 @@ class SamPredictorWrapper:
         sam.to(device=self.device)
         return sam
 
-    def _prepare_points(self, points_positive: np.ndarray = None, points_negative: np.ndarray = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _prepare_points(self, points_positive: np.ndarray = None,
+                        points_negative: np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Prepares and processes positive and negative points for further use.
         Args:
@@ -50,8 +55,8 @@ class SamPredictorWrapper:
         Returns:
             tuple[np.ndarray, np.ndarray, np.ndarray]: A tuple containing:
                 - point_coords (np.ndarray): Concatenated array of positive and negative points.
-                - point_labels (np.ndarray): Array of labels where 1 represents positive points and 0 represents negative points.
-                - points_positive (np.ndarray): Array of positive points reshaped to Nx2.
+                - point_labels (np.ndarray): Array of labels where 1 represents 
+                positive points and 0 represents negative points.
         """
         # Ensure points are Nx2
 
@@ -60,14 +65,17 @@ class SamPredictorWrapper:
         if points_negative is not None:
             points_negative = np.array(points_negative).reshape(-1, 2)  # Reshape to Nx2
             point_coords = np.concatenate([points_positive, points_negative], axis=0)
-            point_labels = np.concatenate([np.ones(len(points_positive)), np.zeros(len(points_negative))], axis=0)
+            point_labels = np.concatenate([np.ones(len(points_positive)),
+                                           np.zeros(len(points_negative))], axis=0)
         else:
             point_coords = points_positive
             point_labels = np.ones(len(points_positive))
 
-        return point_coords, point_labels, points_positive
+        return point_coords, point_labels
 
-    def predict_mask(self, image_rgb: np.ndarray, points_positive: np.ndarray = None, points_negative: np.ndarray = None, box: np.ndarray = None, mask_input: np.ndarray = None) -> torch.Tensor:
+    def predict_mask(self, image_rgb: np.ndarray, points_positive: np.ndarray = None,
+                     points_negative: np.ndarray = None, box: np.ndarray = None,
+                     mask_input: np.ndarray = None) -> torch.Tensor:
         """
         Predicts a mask for the given RGB image based on positive and negative points.
         Args:
@@ -77,14 +85,14 @@ class SamPredictorWrapper:
         Returns:
             torch.Tensor: The predicted mask as a tensor.
         """
-        point_coords, point_labels, points_positive = self._prepare_points(points_positive, points_negative)
+        point_coords, point_labels = self._prepare_points(points_positive, points_negative)
         # Rescale mask_input to 1x256x256
         if mask_input is not None:
             mask_input = cv2.resize(mask_input, (256, 256), interpolation=cv2.INTER_LINEAR)
             mask_input = mask_input[np.newaxis, :, :]
-        
+
         self.predictor.set_image(image_rgb)
-        masks, _, _ = self.predictor.predict(point_coords=point_coords, point_labels=point_labels, box=box, mask_input=mask_input)
+        masks, _, _ = self.predictor.predict(point_coords=point_coords, point_labels=point_labels,
+                                             box=box, mask_input=mask_input)
 
         return masks
-

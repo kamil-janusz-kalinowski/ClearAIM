@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.cluster import KMeans
 
 
 
@@ -81,3 +83,32 @@ def display_mask(image_rgb, masks, point, mask_index=1):
     plt.scatter(point[:, 0], point[:, 1], color='red', s=100, marker='x')
     plt.axis('off')
     plt.show()
+
+def distribute_points_using_kmeans(mask, num_points):
+    """
+    Distribute a specified number of points optimally on a binary mask using k-means clustering.
+
+    Args:
+        mask (np.ndarray): Binary mask array where points should be distributed.
+        num_points (int): Number of points to distribute.
+
+    Returns:
+        np.ndarray: Array of [x, y] coordinates for the distributed points.
+    """
+    # Get valid points from the mask
+    y_indices, x_indices = np.where(mask == 1)
+    if len(y_indices) == 0:
+        return np.array([])
+
+    # Combine coordinates into a single array for clustering
+    coordinates = np.column_stack((x_indices, y_indices))
+
+    # Use k-means clustering to find clusters
+    kmeans = KMeans(n_clusters=min(num_points, len(coordinates)), random_state=0, n_init='auto')
+    kmeans.fit(coordinates)
+    cluster_centers = kmeans.cluster_centers_
+
+    # Round cluster centers to nearest integer coordinates
+    distributed_points = np.round(cluster_centers).astype(int)
+    
+    return distributed_points

@@ -117,15 +117,28 @@ class ImageProcessor:
             int(image.shape[0] // (1/rescale_factor))
              )
         )
-
+        
+    @staticmethod
+    def invert_mask(mask: np.ndarray) -> np.ndarray:
+        mask = mask * 255
+        return cv2.bitwise_not(mask)/255
+    
+    @staticmethod
+    def get_biggest_object_from_mask(mask):
+        # Get the biggest mask object
+        mask = mask.astype(np.uint8)*255
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        mask_final = np.zeros_like(mask)
+        if contours:
+            biggest_contour = max(contours, key=cv2.contourArea)
+            cv2.drawContours(mask_final, [biggest_contour], -1, 1, cv2.FILLED)
+        return mask_final
+            
 
 class MaskVisualizer:
     
     @staticmethod
     def _visualize_result(image, mask, points_positive, points_negative=None, alpha=0.5, point_radius = 5, point_thickness = 2):
-        if isinstance(image, np.ndarray) and image.dtype != np.uint8:
-            image = (image * 255).astype(np.uint8)
-        
         vis_image = image.copy()
         mask_colored = np.zeros_like(image)
         mask_colored[mask == 255] = [0, 255, 0]
@@ -151,6 +164,7 @@ class MaskVisualizer:
     
     @staticmethod
     def display_image_with_data(image_rgb, mask = None, points_positive = None, points_negative = None, time_display = 1000) -> None:
+        mask = mask.astype(np.uint8) * 255
         # Visualize results
         vis_image = MaskVisualizer._visualize_result(image_rgb, mask, points_positive, points_negative)
         # Display visualization 
@@ -158,7 +172,34 @@ class MaskVisualizer:
         cv2.waitKey(time_display)
         cv2.destroyAllWindows()
 
+def distribute_points_using_kmeans(mask, num_points):
+    """
+    Distribute a specified number of points optimally on a binary mask using k-means clustering.
 
+    Args:
+        mask (np.ndarray): Binary mask array where points should be distributed.
+        num_points (int): Number of points to distribute.
+
+    Returns:
+        np.ndarray: Array of [x, y] coordinates for the distributed points.
+    """
+    # Get valid points from the mask
+    y_indices, x_indices = np.where(mask == 1)
+    if len(y_indices) == 0:
+        return np.array([])
+
+    # Combine coordinates into a single array for clustering
+    coordinates = np.column_stack((x_indices, y_indices))
+
+    # Use k-means clustering to find clusters
+    kmeans = KMeans(n_clusters=min(num_points, len(coordinates)), random_state=0, n_init='auto')
+    kmeans.fit(coordinates)
+    cluster_centers = kmeans.cluster_centers_
+
+    # Round cluster centers to nearest integer coordinates
+    distributed_points = np.round(cluster_centers).astype(int)
+    
+    return distributed_points
 
 class MaskDetector:
     def __init__(self, config: MaskDetectorConfig):
@@ -203,21 +244,14 @@ class MaskDetector:
                 mask_input=mask
             )
             
-            mask = masks[1]
-            # Get the biggest mask object
-            mask = mask.astype(np.uint8)*255
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            mask = np.zeros_like(mask)
-            if contours:
-                biggest_contour = max(contours, key=cv2.contourArea)
-                cv2.drawContours(mask, [biggest_contour], -1, 255, cv2.FILLED)
+            mask = ImageProcessor.get_biggest_object_from_mask(masks[1])
             
             if self.is_display:
                 MaskVisualizer.display_image_with_data(image_rgb, mask, points_positive, points_negative)
                 
             # get points for next frame
-            points_negative = self._get_negative_points(mask, num_points=30, min_distance=18)
-            points_positive = self._get_positive_points(mask, num_points=2)
+            points_positive = distribute_points_using_kmeans(mask, num_points=2)
+            points_negative = distribute_points_using_kmeans(ImageProcessor.invert_mask(mask), num_points=20)
 
             # Save mask and update center
             output_path = self._get_save_path(path_image)
@@ -238,7 +272,6 @@ class MaskDetector:
         
         return output_path
         
-    
     def _get_positive_points(self, mask, num_points=2):
         """
         Generate positive points using k-means clustering within the mask.

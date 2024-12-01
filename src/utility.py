@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+
+
 def save_mask_as_image(mask, output_path):
     """
     Saves the logical mask as an image at the given path.
@@ -9,7 +11,7 @@ def save_mask_as_image(mask, output_path):
     :param mask: Logical mask (numpy array)
     :param output_path: Path to the output file
     """
-    mask = mask.astype(np.uint8) * 255
+    mask = mask.astype(np.uint8)
     cv2.imwrite(output_path, mask)
     print(f"Saved mask to {output_path}")
 
@@ -24,18 +26,12 @@ def get_click_coordinates(image):
     cv2.imshow('Click to select point', image)
     cv2.setMouseCallback('Click to select point', mouse_callback)
     cv2.waitKey(0)
-    return coordinates[0] if coordinates else None
+    
+    coordinates = np.array(coordinates).reshape(-1, 2)
+    
+    return coordinates
 
 def get_negative_points(mask, num_points=5, min_distance=50):
-    """
-    Generate negative points away from the mask
-    Args:
-        mask: Binary mask array
-        num_points: Number of negative points to generate
-        min_distance: Minimum distance from mask boundary
-    Returns:
-        List of [x,y] coordinates for negative points
-    """
     import cv2
     import numpy as np
     from scipy.spatial.distance import cdist
@@ -56,15 +52,25 @@ def get_negative_points(mask, num_points=5, min_distance=50):
     distances = cdist(grid_points, contour_points)
     min_distances = distances.min(axis=1)
     
-    # Filter points that are far enough from mask
-    far_points = grid_points[min_distances > min_distance]
+    # Filter points that are:
+    # 1. Far enough from mask
+    distance_mask = min_distances > min_distance
+    
+    # 2. Outside the mask
+    outside_mask = []
+    for point in grid_points:
+        result = cv2.pointPolygonTest(contours[0], (float(point[0]), float(point[1])), False)
+        outside_mask.append(result < 0)  # Negative means outside
+    
+    # Combine both conditions
+    valid_points = grid_points[np.logical_and(distance_mask, outside_mask)]
     
     # Randomly select points
-    if len(far_points) > num_points:
-        indices = np.random.choice(len(far_points), num_points, replace=False)
-        selected_points = far_points[indices]
+    if len(valid_points) > num_points:
+        indices = np.random.choice(len(valid_points), num_points, replace=False)
+        selected_points = valid_points[indices]
     else:
-        selected_points = far_points
+        selected_points = valid_points
         
     return selected_points.tolist()
 

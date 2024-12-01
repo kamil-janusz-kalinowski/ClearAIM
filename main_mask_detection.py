@@ -1,7 +1,7 @@
 from src.mask_detector import MaskDetectorBuilder
 
 def transform_source_path_to_save_path(path_source: str) -> str:
-    return path_source.replace("Materials", "Result")
+    return path_source.replace("Materials", "Results")
 
 if __name__ == "__main__":
     builder = MaskDetectorBuilder()

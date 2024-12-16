@@ -240,6 +240,19 @@ class ImageProcessor:
             cv2.drawContours(mask_final, [biggest_contour], -1, 1, cv2.FILLED)
         return mask_final
 
+    @staticmethod
+    def erode_mask(mask: np.ndarray, kernel_size: int = 5) -> np.ndarray:
+        """
+        Erode the mask using a kernel of the specified size.
+        
+        :param mask: The input binary mask as a numpy array (0 or 1)
+        :param kernel_size: The size of the kernel for erosion
+        
+        :return: The eroded binary mask as a numpy array
+        """
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        return cv2.erode(mask, kernel, iterations=1)
+
 class MaskVisualizer:
     """Utility class for visualizing images with masks and points."""
 
@@ -285,7 +298,7 @@ class MaskVisualizer:
     def display_image_with_data(image_rgb, mask = None,
                                 points_positive = None,
                                 points_negative = None,
-                                time_display = 1000) -> None:
+                                time_display = 0) -> None:
         """
         Display an image with the specified mask and points.
         
@@ -421,17 +434,11 @@ class MaskDetector:
             MaskVisualizer.display_image_with_data(image_rgb, state.mask_current,
                                                    state.points_positive, state.points_negative)
 
-        if state.mask_previous is not None:
-            mask_mutual = cv2.bitwise_and(state.mask_current, state.mask_previous)
-        else:
-            mask_mutual = state.mask_current
-
         # get points for next frame
-        state.points_positive = distribute_points(mask_mutual, num_points=self.num_positive_points)
+        state.points_positive = distribute_points(ImageProcessor.erode_mask(state.mask_current, 5),
+                                                  num_points=self.num_positive_points)
         state.points_negative = distribute_points(ImageProcessor.invert_mask(state.mask_current),
-                                                               num_points=self.num_negative_points)
-
-        state.mask_previous = state.mask_current
+                                                  num_points=self.num_negative_points)
 
         return state
 

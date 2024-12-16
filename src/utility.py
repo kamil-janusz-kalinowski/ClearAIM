@@ -18,14 +18,15 @@ def save_mask_as_image(mask, output_path):
     cv2.imwrite(output_path, mask)
     print(f"Saved mask to {output_path}")
 
-def get_click_coordinates(image):
+def get_click_coordinates(image, num_points = 2):
     """
     Displays an image and allows the user to click on it to select coordinates.
     Args:
         image (numpy.ndarray): The image on which the user will click to select points.
+        num_points (int): The number of points the user will select.
     Returns:
-        numpy.ndarray: An array of shape (n, 2) containing the coordinates of the points 
-                       selected by the user, where n is the number of points.
+        numpy.ndarray: An array of shape (num_points, 2) containing the coordinates of the points 
+                       selected by the user.
     """
 
     coordinates = []
@@ -33,7 +34,10 @@ def get_click_coordinates(image):
     def mouse_callback(event, x, y, flags, param): # pylint: disable=unused-argument
         if event == cv2.EVENT_LBUTTONDOWN:
             coordinates.append((x, y))
-            cv2.destroyAllWindows()
+            cv2.circle(image, (x, y), 5, (0, 255, 0), -1)  # Mark the point on the image
+            cv2.imshow('Click to select point', image)
+            if len(coordinates) == num_points:
+                cv2.destroyAllWindows()
 
     cv2.imshow('Click to select point', image)
     cv2.setMouseCallback('Click to select point', mouse_callback)

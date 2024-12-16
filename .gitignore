@@ -1,6 +1,10 @@
 # Ignore all .pyc files
 *.pyc
 
+# Ignore fig and mat files
+*.fig
+*.mat
+
 # Ignore the virtual environment
 venv/
 

@@ -2,23 +2,25 @@ clc; clear; close all;
 
 addpath(genpath("./"));
 
-path_images = "./Materials/250um brain/skrawek 1";
-path_masks = "./Results/250um brain/skrawek 1";
+path_images = "./Materials/500um brain/skrawek 3";
+path_masks = "./Results/500um brain/skrawek 3";
+filename_save = '500um brain skrawek 3';
 
 paths_pairs = findImageMaskPairs(path_images, path_masks);
 paths_pairs = sort_image_mask_struct(paths_pairs);
 
-displayImagesWithMasks(paths_pairs)
-%% Calculate and Display Sample Measurements
+%paths_pairs = paths_pairs(1:100); %TEMP
 
+%displayImagesWithMasks(paths_pairs)
+%% Calculate and Display Sample Measurements
 RADIUS_DILAT = 20;
 
 metrics_array = calcMetricsOfAllImages(paths_pairs, RADIUS_DILAT);
+%%
 times_days_array = getTimeFromMetadatas([paths_pairs.image_path]);
 displayMetrics(metrics_array, times_days_array)
 
 %% Making animation from data
-filename_save = 'animation';
 createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_array, times_days_array)
 
 
@@ -306,26 +308,27 @@ end
 
 
 function time = getImageTime(filename)
-    % Funkcja zwraca czas wykonania zdjęcia, jeśli jest dostępny w metadanych EXIF.
-    % Jeśli nie ma tej informacji, zwraca pustą tablicę.
+    % Function returns the timestamp of the image if available in the EXIF metadata.
+    % If the information is not available, it returns an empty array.
     
-    % Pobierz metadane obrazu
+    % Retrieve the image metadata
     info = imfinfo(filename);
     
-    % Inicjalizuj zmienną time jako pustą
+    % Initialize the variable 'time' as empty
     time = [];
     
-    % Sprawdź, czy istnieje informacja o czasie wykonania w metadanych EXIF
+    % Check if the timestamp information exists in the EXIF metadata
     if isfield(info, 'DigitalCamera') && isfield(info.DigitalCamera, 'DateTimeOriginal')
-        % Pobierz czas wykonania zdjęcia
+        % Retrieve the timestamp of when the image was taken
         time = info.DigitalCamera.DateTimeOriginal;
     elseif isfield(info, 'FileModDate')
-        % Alternatywnie, użyj czasu modyfikacji pliku
+        % Alternatively, use the file modification timestamp
         time = info.FileModDate;
     else
-        fprintf('Metadane czasowe nie są dostępne dla pliku: %s\n', filename);
+        fprintf('Timestamp metadata is not available for the file: %s\n', filename);
     end
 end
+
 
 function numericTime = getImageTimeAsNumeric(filename)
     % getImageTimeAsNumeric Extracts and converts image capture time to numeric format.
@@ -366,8 +369,11 @@ function numericTime = getImageTimeAsNumeric(filename)
     if isempty(timeStr)
         error('Failed to find time information in the metadata.');
     end
-
-    dateTimeObj = datetime(timeStr, 'InputFormat', 'dd-MMM-yyyy HH:mm:ss', 'Locale', 'pl_PL');
+    try
+       dateTimeObj = datetime(timeStr, 'InputFormat', 'dd-MMM-yyyy HH:mm:ss');
+    catch
+       dateTimeObj = datetime(timeStr, 'InputFormat', 'dd-MMM-yyyy HH:mm:ss', 'Locale','pl-PL');
+    end
     numericTime = datenum(dateTimeObj);
 end
 
@@ -381,13 +387,13 @@ function time_array = getTimeFromMetadatas(paths_image)
 end
 
 function createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_array, times_days_array)
-    % Create video writer
+    % Create a video writer
     videoWriter = VideoWriter(filename_save, 'MPEG-4');
     videoWriter.Quality = 100;
     open(videoWriter);
 
     % Preprocess data
-    area_array = [metrics_array(:).area] / max([metrics_array(:).area]); % Normalize area
+    area_array = [metrics_array(:).area] / max([metrics_array(:).area]) * 100; % Normalize area
     web_contrast_array = [metrics_array(:).web_contrast];
     transmittance_array = [metrics_array(:).transmittance] * 100; % Convert to percentage
     times_hours = times_days_array * 24; % Convert days to hours
@@ -397,54 +403,53 @@ function createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_ar
     contrast_limits = [min(web_contrast_array), max(web_contrast_array)];
     transmittance_limits = [min(transmittance_array), max(transmittance_array)];
 
-    % Create figure and layout
-    h_fig = figure;
+    % Create the figure and layout
+    h_fig = figure('Units', 'Normalized', 'Position', [0 0 1 1]); 
     set(h_fig, 'Color', 'w');
-    maximizeFigureWithOriginalAspectRatio(h_fig);
-    t = tiledlayout(2, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
+
+    % Configure tile layout
+    tiledlayout(1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
     
-    % Animation loop
-    for ind = 1:length(paths_pairs)
+    for ind = length(paths_pairs):length(paths_pairs)
         path_img = paths_pairs(ind).image_path;
         path_mask = paths_pairs(ind).mask_path;
 
-        % Display the image with mask contours
-        nexttile(1);
-        displayImageWithMaskContour(path_img, path_mask);
-        title('Image with Mask Contours');
+        % Convert time to hh:mm:ss format
+        current_time = seconds(times_hours(ind) * 3600);
+        time_string = string(duration(current_time, 'Format', 'hh:mm:ss'));
 
-        % Plot area
-        nexttile(2);
+        % Create a layout with two columns
+        subplot('Position', [0.05 0.1 0.5 0.8]); % Image on the left (large)
+        displayImageWithMaskContour(path_img, path_mask);
+        title(['Image with Mask Contours', ...
+            "Elapsed Time [hh:mm:ss]: " + time_string]);
+        
+        % Plots on the right
+        % First plot (area)
+        subplot('Position', [0.6 0.54 0.35 0.3]);
         plot(times_hours(1:ind), area_array(1:ind), 'LineWidth', 2, 'Color', 'b');
-        title('Normalized Area Over Time');
-        xlabel('Time (hours)');
+        title('Normalized Area Over Time [%]');
+        xlabel('Time [hours]');
         ylabel('Normalized Area');
         xlim([times_hours(1), times_hours(end)]);
         ylim(area_limits);
-
-        % Plot Weber contrast
-        nexttile(3);
-        plot(times_hours(1:ind), web_contrast_array(1:ind), 'LineWidth', 2, 'Color', 'r');
-        title('Weber Contrast Over Time');
-        xlabel('Time (hours)');
-        ylabel('Weber Contrast');
-        xlim([times_hours(1), times_hours(end)]);
-        ylim(contrast_limits);
-
-        % Plot transmittance with darker green color
-        nexttile(4);
-        plot(times_hours(1:ind), transmittance_array(1:ind), 'LineWidth', 2, 'Color', '#2e8b57'); % Dark green
-        title('Transmittance Over Time');
-        xlabel('Time (hours)');
-        ylabel('Transmittance (%)');
+        grid on;
+        
+        % Second plot (transmittance)
+        subplot('Position', [0.6 0.15 0.35 0.3]);
+        plot(times_hours(1:ind), transmittance_array(1:ind), 'LineWidth', 2, 'Color', '#2e8b57');
+        title('Transparency Over Time');
+        xlabel('Time [hours]');
+        ylabel('Transparency [%]');
         xlim([times_hours(1), times_hours(end)]);
         ylim(transmittance_limits);
-
-        % Capture the frame
+        grid on;
+    
+        % Save the frame to the video
         frameData = getframe(gcf);
         writeVideo(videoWriter, frameData);
-
-        % Pause briefly for visualization (optional)
+    
+        % Short pause for visualization (optional)
         pause(0.01);
     end
 
@@ -454,37 +459,3 @@ function createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_ar
 
     disp(['Animation completed and saved as ', filename_save]);
 end
-
-
-function maximizeFigureWithOriginalAspectRatio(figHandle)
-    % Sprawdzenie, czy uchwyt jest poprawny
-    if ~isgraphics(figHandle, 'figure')
-        error('Invalid figure handle.');
-    end
-
-    % Pobranie aktualnych proporcji figury
-    originalPosition = figHandle.Position;
-    aspectRatio = originalPosition(3) / originalPosition(4); % width / height
-
-    % Pobranie rozmiarów ekranu
-    screenSize = get(0, 'ScreenSize'); % [left, bottom, width, height]
-
-    % Obliczenie maksymalnych wymiarów figury przy zachowaniu oryginalnych proporcji
-    if (screenSize(3) / screenSize(4)) > aspectRatio
-        % Ekran jest szerszy niż proporcja figury
-        figHeight = screenSize(4) * 0.9; % 90% wysokości ekranu
-        figWidth = figHeight * aspectRatio;
-    else
-        % Ekran jest wyższy niż proporcja figury
-        figWidth = screenSize(3) * 0.9; % 90% szerokości ekranu
-        figHeight = figWidth / aspectRatio;
-    end
-
-    % Ustawienie pozycji figury na środku ekranu z maksymalnymi wymiarami
-    figHandle.Position = [ ...
-        (screenSize(3) - figWidth) / 2, ...
-        (screenSize(4) - figHeight) / 2, ...
-        figWidth, ...
-        figHeight];
-end
-

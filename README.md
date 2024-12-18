@@ -1,4 +1,4 @@
-# Brain-Detection
+# ClearAIM
 
 ## Overview
 

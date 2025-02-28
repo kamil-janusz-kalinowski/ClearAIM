@@ -2,9 +2,9 @@ clc; clear; close all;
 
 addpath(genpath("./"));
 
-path_images = "./Materials/500um brain/skrawek 3";
-path_masks = "./Results/500um brain/skrawek 3";
-filename_save = '500um brain skrawek 3';
+path_images = "./Materials/1mm brain/skrawek 5_po-recenzjach";
+path_masks = "./Results/1mm brain/skrawek 5_po-recenzjach";
+filename_save = '1mm brain skrawek 5_po-recenzjach';
 
 paths_pairs = findImageMaskPairs(path_images, path_masks);
 paths_pairs = sort_image_mask_struct(paths_pairs);
@@ -14,16 +14,85 @@ paths_pairs = sort_image_mask_struct(paths_pairs);
 %displayImagesWithMasks(paths_pairs)
 %% Calculate and Display Sample Measurements
 RADIUS_DILAT = 20;
-
 metrics_array = calcMetricsOfAllImages(paths_pairs, RADIUS_DILAT);
 %%
-times_days_array = getTimeFromMetadatas([paths_pairs.image_path]);
-displayMetrics(metrics_array, times_days_array)
+range_temp = 150:length(paths_pairs);
+
+% times_days_array = getTimeFromMetadatas([paths_pairs(range_temp).image_path]);
+% times_days_array = times_days_array - min(times_days_array);
+times_days_array = getTimeFromName([paths_pairs(range_temp).image_path]);
+
+metrics_array_part = metrics_array(range_temp);
+paths_pairs_part = paths_pairs(range_temp);
+
+inds = getIndsForTimeSynchronization(times_days_array);
+times_days_array = times_days_array(inds); metrics_array_part = metrics_array_part(inds); paths_pairs_part = paths_pairs_part(inds);
+
+% TEMP: Dodatkowe przycięcie by sprawić że każdy film trwa tyle samo czasu
+inds = times_days_array < (71/24);
+times_days_array = times_days_array(inds);
+metrics_array_part = metrics_array_part(inds);
+paths_pairs_part = paths_pairs_part(inds);
+
+displayMetrics(metrics_array_part, times_days_array);
+
+save(filename_save + ".mat", 'times_days_array', 'metrics_array_part');
 
 %% Making animation from data
-createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_array, times_days_array)
+createAnimationOfObjectDetection(filename_save, paths_pairs_part, metrics_array_part, times_days_array)
+
+%% TEMP
+
+clc; clear; close all;
+
+addpath(genpath("./"));
+
+path_images = "./Materials/1mm brain/skrawek 2";
+path_masks = "./Results/1mm brain/skrawek 2";
+filename_save = 'test';
+
+paths_pairs = findImageMaskPairs(path_images, path_masks);
+paths_pairs = sort_image_mask_struct(paths_pairs);
+
+% Get dark and bright sample
+
+ind_dark = 10;
+ind_light = length(paths_pairs) - 10;
+
+image_path = paths_pairs(ind_dark).image_path;
+mask_path = paths_pairs(ind_dark).mask_path;
+original_image = imread(image_path);
+
+resized_image = imresize(original_image, 1/5);
+% Load the mask
+mask = imread(mask_path);
+% Process the mask (using a helper function)
+mask_SAM = imresize(mask, size(original_image), 'nearest');
+
+% Oblicz próg metodą Otsu
+threshold = graythresh(resized_image);
+% Zastosuj próg do segmentacji
+mask_otsu = ~imbinarize(resized_image, threshold);
+mask_otsu = imresize(mask_otsu, size(original_image), 'nearest');
+
+figure(1)
+imshow(original_image, [])
+title('Origin')
+
+figure(2)
+imshow(mask_SAM, [])
+title('ClearAIM')
+
+figure(3)
+imshow(mask_otsu, [])
+title('Otsu')
+
+figure(4)
+imshow(mask_true, [])
+title('Ground True')
 
 
+%displayImagesWithMasks(paths_pairs)
 
 function file_pairs = findImageMaskPairs(folder_images, folder_masks, mask_suffix)
     % Retrieves pairs of image and corresponding mask files from specified folders
@@ -329,7 +398,6 @@ function time = getImageTime(filename)
     end
 end
 
-
 function numericTime = getImageTimeAsNumeric(filename)
     % getImageTimeAsNumeric Extracts and converts image capture time to numeric format.
     %
@@ -410,7 +478,7 @@ function createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_ar
     % Configure tile layout
     tiledlayout(1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
     
-    for ind = length(paths_pairs):length(paths_pairs)
+    for ind = 1:length(paths_pairs)
         path_img = paths_pairs(ind).image_path;
         path_mask = paths_pairs(ind).mask_path;
 
@@ -458,4 +526,29 @@ function createAnimationOfObjectDetection(filename_save, paths_pairs, metrics_ar
     close(h_fig);
 
     disp(['Animation completed and saved as ', filename_save]);
+end
+
+function datetime_obj = filename2datetime(filename)
+    % Usunięcie rozszerzenia
+    [~, name, ~] = fileparts(filename);
+    
+    % Konwersja na format daty
+    datetime_obj = datetime(name, 'InputFormat', 'yyyy-MM-dd HH-mm-ss');
+end
+
+
+function days_elapsed = getTimeFromName(paths_image)
+    time_array = datetime.empty(length(paths_image), 0);
+    for ind = 1 : length(paths_image)
+        time_array(ind) = filename2datetime(paths_image(ind));
+    end
+    days_elapsed = days(time_array - min(time_array));
+end
+
+function inds = getIndsForTimeSynchronization(time_actual)
+    load("wzorcowy_czas.mat");
+    inds = zeros(length(times_days_array_original), 1);
+    for ind_time = 1 : length(times_days_array_original)
+        [~, inds(ind_time)] = min(abs(time_actual - times_days_array_original(ind_time))); 
+    end
 end

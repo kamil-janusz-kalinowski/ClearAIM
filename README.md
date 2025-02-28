@@ -1,8 +1,10 @@
-# Brain-Detection
+# ClearAIM 
 
 ## Overview
 
 This repository contains scripts for image processing and analysis, specifically for detecting and analyzing brain images. The main functionalities include mask prediction using the Segment Anything Model (SAM) and subsequent analysis of the predicted masks.
+
+ClearAIM stands for Clear Artificial Intelligence Monitoring, emphasizing the focus on using AI techniques for precise and transparent analysis in biomedical imaging.
 
 ## Requirements
 

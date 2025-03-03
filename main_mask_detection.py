@@ -19,6 +19,7 @@ if __name__ == "__main__":
     builder.folderpath_save = transform_source_path_to_save_path(builder.folderpath_source)
     builder.num_negative_points = 20
     builder.is_display = True
+    builder.is_roi = True
 
     detector = builder.build()
     detector.process_images()

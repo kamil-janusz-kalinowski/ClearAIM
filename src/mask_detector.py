@@ -34,6 +34,7 @@ class MaskDetectorConfig:
         self.folderpath_save = None
         self.num_positive_points = 2
         self.num_negative_points = 12
+        self.is_roi = False
 
 class MaskDetectorBuilder:
     """
@@ -135,9 +136,19 @@ class MaskDetectorBuilder:
     def num_negative_points(self, value):
         self._config.num_negative_points = value
 
+    @property
+    def is_roi(self) -> bool:
+        """bool: Flag to indicate whether to use a region of interest for mask detection."""
+        return self._config.is_roi
+    
+    @is_roi.setter
+    def is_roi(self, value):
+        self._config.is_roi = value
+
     def build(self) -> 'MaskDetector':
         """Constructs and returns a MaskDetector object with the configured parameters."""
         return MaskDetector(self._config)
+
 
 class ImagePathUtility:
     """Utility class for handling image paths and saving masks as images."""
@@ -252,6 +263,20 @@ class ImageProcessor:
         """
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
         return cv2.erode(mask, kernel, iterations=1)
+
+    @staticmethod
+    def crop_image(image: np.ndarray, box: tuple) -> np.ndarray:
+        """
+        Crop an image using the specified bounding box.
+        
+        :param image: The input image as a numpy array
+        :param box: The bounding box coordinates (x, y, w, h)
+        
+        :return: The cropped image as a numpy array
+        """
+        x, y, w, h = box
+        return image[y:y+h, x:x+w]
+    
 
 class MaskVisualizer:
     """Utility class for visualizing images with masks and points."""
@@ -384,11 +409,17 @@ class MaskDetector:
         self.folderpath_save = config.folderpath_save
         self.num_positive_points = config.num_positive_points
         self.num_negative_points = config.num_negative_points
+        self.is_roi = config.is_roi
+        self.box_roi = None
 
         self._sam_predictor = SamPredictorWrapper(
             model_type=self._model_type,
             checkpoint_path=self._checkpoint_path
         )
+        
+        if self.is_roi:
+            self.box_roi = self._choose_roi_box()
+            
 
     def process_images(self):
         """Main processing pipeline"""
@@ -400,6 +431,9 @@ class MaskDetector:
         first_image = ImageProcessor.load_image(paths_image[0])
         first_image = ImageProcessor.rescale(first_image, 1/self.downscale_factor)
 
+        if self.is_roi:
+            first_image = ImageProcessor.crop_image(first_image, self.box_roi)
+                    
         points_positive = get_click_coordinates(
             cv2.cvtColor(first_image, cv2.COLOR_RGB2BGR)
         )
@@ -409,16 +443,29 @@ class MaskDetector:
         # Process all images
         for path_image in tqdm(paths_image, desc="Processing images"):
             image_rgb = ImageProcessor.load_image(path_image)
-            state = self.process_single_image(image_rgb, state)
+            image_rescaled = ImageProcessor.rescale(image_rgb, 1/self.downscale_factor)
+            if self.is_roi:
+                image_processed = ImageProcessor.crop_image(image_rescaled, self.box_roi)
+            else:
+                image_processed = image_rescaled
+            
+            state = self.process_single_image(image_processed, state)
 
             # Save mask and update center
             output_path = self._get_save_path(path_image)
-            ImagePathUtility.save_mask_as_image(state.mask_current, output_path)
+            
+            if self.is_roi:
+                mask_final = np.zeros(image_rescaled.shape[:2], dtype=np.uint8)
+                mask_final[self.box_roi[1]:self.box_roi[1]+self.box_roi[3],
+                            self.box_roi[0]:self.box_roi[0]+self.box_roi[2]] = state.mask_current
+            else:
+                mask_final = state.mask_current
+                 
+            ImagePathUtility.save_mask_as_image(mask_final, output_path)
 
     def process_single_image(self, image_rgb: np.ndarray,
                              state: ImageProcessingState) -> ImageProcessingState:
         """Process a single image"""
-        image_rgb = ImageProcessor.rescale(image_rgb, 1/self.downscale_factor)
 
         # Predict mask
         masks = self._sam_predictor.predict_mask(
@@ -456,3 +503,14 @@ class MaskDetector:
         output_path = os.path.join(self.folderpath_save, mask_filename)
 
         return output_path
+
+    def _choose_roi_box(self) -> tuple:
+        """Choose a region of interest (ROI) box for mask detection."""
+        paths_image = ImagePathUtility.get_image_paths(self.folderpath_source,
+                                                self.image_extensions)
+        first_image = ImageProcessor.load_image(paths_image[0])
+        first_image = ImageProcessor.rescale(first_image, 1/self.downscale_factor)
+        box_roi = cv2.selectROI("Choose ROI", first_image, fromCenter=False, showCrosshair=True)
+        cv2.destroyAllWindows()
+        return box_roi
+    
